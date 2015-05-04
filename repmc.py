@@ -43,11 +43,11 @@ def mc(iwin, k, center, p=None, nstep=10000, ifreq=20):
         if y > 15 or y < -15:
             U1 = U1 + 0.5 * 10 * (abs(y) - 15)**2
 
-        if U1 > U0 and np.exp(-(U1-U0)/0.6) <= random.random():
-            continue
-        x0, y0 = x, y
+        doswap = U1 < U0 or np.exp(-(U1-U0)/0.6) > random.random()
+        if doswap:
+            x0, y0 = x, y
+            U0 = U1
         nmc += 1
-        U0 = U1
         if nmc % ifreq == 0: history.append((x, y))
         if nmc > nstep: break
     return np.array(history)
@@ -96,13 +96,22 @@ for i in range(nrun):
     if doswap:
         newid = loc[swap]
         loc[swap] = rank
+        rep = comm.sendrecv(rep, source=newid, dest=newid)
     p = p0
 
-    for j in range(nrep):
-        if j != swap:
-            loc[j] = comm.sendrecv(newid, source=loc[j], dest=loc[j])
-
-    if doswap:
-        rep = comm.sendrecv(rep, source=newid, dest=newid)
+    if rank == 0:
+        for j in range(nrep):
+            if doswap and j == swap: continue
+            if loc[j] == rank: 
+                loc[j] = newid
+            else:
+                loc[j] = comm.recv(None, source=loc[j], tag=2)
+    else:
+        if newid != 0: comm.send(newid, dest=0, tag=2)
     comm.Barrier()
+    loc = comm.bcast(loc, root=0)
+    #for j in range(nrep):
+    #    if j != swap:
+    #        loc[j] = comm.sendrecv(newid, source=loc[j], dest=loc[j])
+
     if rank == 0 and i % 10 == 0: print(i)
